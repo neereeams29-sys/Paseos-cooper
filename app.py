@@ -12,30 +12,43 @@ from reportlab.lib import colors
 st.set_page_config(page_title="Turnos de Cooper 🐾", page_icon="🐾", layout="centered")
 
 st.title("🐾 El Planificador de Cooper")
-st.write("Registrad los turnos reales y descargad el informe oficial en PDF.")
+st.write("Organizad la semana en común y registrad los paseos reales.")
 
-# --- TRUCO DE LA NUBE: GUARDAR EN UN ARCHIVO DE TEXTO REAL ---
-FICHERO_DATOS = "historial_cooper.csv"
+# --- ARCHIVOS DE CONTROL EN LA NUBE ---
+FICHERO_PREFERENCIAS = "preferencias_semana.csv"
+FICHERO_HISTORIAL = "historial_cooper.csv"
 
-# Función para cargar los datos guardados en la nube de la app
-def cargar_datos_reales():
-    if os.path.exists(FICHERO_DATOS):
-        return pd.read_csv(FICHERO_DATOS).to_dict(orient="records")
+# Funciones de carga y guardado para las preferencias compartidas
+def cargar_preferencias():
+    if os.path.exists(FICHERO_PREFERENCIAS):
+        return pd.read_csv(FICHERO_PREFERENCIAS).set_index("Turno_Clave")["Opcion"].to_dict()
+    return {}
+
+def guardar_preferencias(dicc_pref):
+    df = pd.DataFrame(list(dicc_pref.items()), columns=["Turno_Clave", "Opcion"])
+    df.to_csv(FICHERO_PREFERENCIAS, index=False)
+
+# Funciones de carga y guardado para el historial del PDF
+def cargar_historial():
+    if os.path.exists(FICHERO_HISTORIAL):
+        return pd.read_csv(FICHERO_HISTORIAL).to_dict(orient="records")
     return []
 
-# Función para guardar los datos nuevos en la nube de la app
-def guardar_datos_reales(lista_datos):
+def guardar_historial(lista_datos):
     df = pd.DataFrame(lista_datos)
-    df.to_csv(FICHERO_DATOS, index=False)
+    df.to_csv(FICHERO_HISTORIAL, index=False)
 
-# Inicializar la sesión con los datos compartidos de verdad
+# --- INICIALIZACIÓN DE DATOS COMPARTIDOS ---
+if "preferencias_guardadas" not in st.session_state:
+    st.session_state.preferencias_guardadas = cargar_preferencias()
+
 if "historico_paseos" not in st.session_state:
-    st.session_state.historico_paseos = cargar_datos_reales()
+    st.session_state.historico_paseos = cargar_historial()
 
 if "razones" not in st.session_state:
     st.session_state.razones = {}
 
-# Generación de los próximos 7 días
+# Generación de los próximos 7 días dinámicos
 meses_es = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 dias_semana_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
@@ -60,13 +73,38 @@ for i, dia_texto in enumerate(DIAS_DINAMICOS):
         
         for turno in TURNOS:
             st.write(f"**Turno de la {turno}:**")
+            
+            # Generar identificadores únicos para cada desplegable en la base de datos
+            clave_nerea = f"nerea_{dia_texto}_{turno}"
+            clave_aitana = f"aitana_{dia_texto}_{turno}"
+            
+            # Averiguar si ya había algo guardado previamente en la nube por alguna de las dos
+            valor_previo_nerea = st.session_state.preferencias_guardadas.get(clave_nerea, "Seleccionar...")
+            valor_previo_aitana = st.session_state.preferencias_guardadas.get(clave_aitana, "Seleccionar...")
+            
+            # Asegurarse de que el valor previo existe en las opciones actuales
+            idx_nerea = OPCIONES.index(valor_previo_nerea) if valor_previo_nerea in OPCIONES else 0
+            idx_aitana = OPCIONES.index(valor_previo_aitana) if valor_previo_aitana in OPCIONES else 0
+            
             col1, col2 = st.columns(2)
             
             with col1:
-                pref_nerea = st.selectbox(f"Preferencia de Nerea ({turno})", OPCIONES, key=f"nerea_{dia_texto}_{turno}")
+                pref_nerea = st.selectbox(f"Preferencia de Nerea ({turno})", OPCIONES, index=idx_nerea, key=f"sel_{clave_nerea}")
+                # Si cambias tu opción, se guarda al instante en la nube
+                if pref_nerea != valor_previo_nerea:
+                    st.session_state.preferencias_guardadas[clave_nerea] = pref_nerea
+                    guardar_preferencias(st.session_state.preferencias_guardadas)
+                    st.rerun()
+                    
             with col2:
-                pref_aitana = st.selectbox(f"Preferencia de Aitana ({turno})", OPCIONES, key=f"aitana_{dia_texto}_{turno}")
+                pref_aitana = st.selectbox(f"Preferencia de Aitana ({turno})", OPCIONES, index=idx_aitana, key=f"sel_{clave_aitana}")
+                # Si tu hermana cambia su opción, se guarda al instante en la nube
+                if pref_aitana != valor_previo_aitana:
+                    st.session_state.preferencias_guardadas[clave_aitana] = pref_aitana
+                    guardar_preferencias(st.session_state.preferencias_guardadas)
+                    st.rerun()
             
+            # --- LÓGICA DE ASIGNACIÓN VISUAL ---
             encargado_final = None
             
             if "Papá/Mamá" in pref_nerea or "Papá/Mamá" in pref_aitana:
@@ -93,14 +131,14 @@ for i, dia_texto in enumerate(DIAS_DINAMICOS):
             elif pref_nerea != "Seleccionar..." and pref_aitana != "Seleccionar...":
                 st.warning("🤝 Empate. Decidid quién va.")
             
+            # El botón solo sirve para meter el registro definitivo en el historial una vez hecho el paseo
             if encargado_final:
                 if st.button(f"📌 Confirmar que se ha hecho este paseo", key=f"btn_{dia_texto}_{turno}"):
                     nuevo_registro = {"Fecha": dia_texto, "Turno": turno, "Encargado": encargado_final}
                     if nuevo_registro not in st.session_state.historico_paseos:
                         st.session_state.historico_paseos.append(nuevo_registro)
-                        # Guardar el archivo en el servidor para que Aitana lo vea al instante
-                        guardar_datos_reales(st.session_state.historico_paseos)
-                        st.toast(f"¡Paseo anotado para {encargado_final}!")
+                        guardar_historial(st.session_state.historico_paseos)
+                        st.toast(f"¡Paseo de Cooper anotado para {encargado_final}!")
 
 st.markdown("---")
 
