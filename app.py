@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import io
+import os
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
@@ -13,9 +14,23 @@ st.set_page_config(page_title="Turnos de Cooper 🐾", page_icon="🐾", layout=
 st.title("🐾 El Planificador de Cooper")
 st.write("Registrad los turnos reales y descargad el informe oficial en PDF.")
 
-# --- BASE DE DATOS REAL (AHORA SÍ, COMPLETAMENTE VACÍA AL PRINCIPIO) ---
+# --- TRUCO DE LA NUBE: GUARDAR EN UN ARCHIVO DE TEXTO REAL ---
+FICHERO_DATOS = "historial_cooper.csv"
+
+# Función para cargar los datos guardados en la nube de la app
+def cargar_datos_reales():
+    if os.path.exists(FICHERO_DATOS):
+        return pd.read_csv(FICHERO_DATOS).to_dict(orient="records")
+    return []
+
+# Función para guardar los datos nuevos en la nube de la app
+def guardar_datos_reales(lista_datos):
+    df = pd.DataFrame(lista_datos)
+    df.to_csv(FICHERO_DATOS, index=False)
+
+# Inicializar la sesión con los datos compartidos de verdad
 if "historico_paseos" not in st.session_state:
-    st.session_state.historico_paseos = []
+    st.session_state.historico_paseos = cargar_datos_reales()
 
 if "razones" not in st.session_state:
     st.session_state.razones = {}
@@ -83,6 +98,8 @@ for i, dia_texto in enumerate(DIAS_DINAMICOS):
                     nuevo_registro = {"Fecha": dia_texto, "Turno": turno, "Encargado": encargado_final}
                     if nuevo_registro not in st.session_state.historico_paseos:
                         st.session_state.historico_paseos.append(nuevo_registro)
+                        # Guardar el archivo en el servidor para que Aitana lo vea al instante
+                        guardar_datos_reales(st.session_state.historico_paseos)
                         st.toast(f"¡Paseo anotado para {encargado_final}!")
 
 st.markdown("---")
@@ -91,7 +108,6 @@ st.markdown("---")
 st.header("📊 Auditoría e Informe Mensual")
 st.write("Historial de paseos confirmados de verdad:")
 
-# Si hay datos de verdad introducidos por vosotras...
 if st.session_state.historico_paseos:
     df_real = pd.DataFrame(st.session_state.historico_paseos)
     st.dataframe(df_real, use_container_width=True)
@@ -106,7 +122,6 @@ if st.session_state.historico_paseos:
     col_m2.metric("Paseos de Aitana", f"{t_aitana} 🐾")
     col_m3.metric("Papá/Mamá", f"{t_padres} 🐾")
     
-    # Generador de PDF personalizado con el nombre de Cooper
     def generar_pdf(data_frame):
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
@@ -146,5 +161,4 @@ if st.session_state.historico_paseos:
         mime="application/pdf"
     )
 else:
-    # Mensaje limpio si todavía no habéis confirmado nada
     st.info("Aún no hay ningún paseo guardado para Cooper. ¡Empezad a confirmar turnos arriba!")
